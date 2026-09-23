@@ -52,10 +52,10 @@ def _string(value: Any, context: str) -> str:
     return value
 
 
-def _workspace(value: Any, *, display: bool = False) -> dict[str, Any]:
+def _workspace(value: Any, *, require_label: bool = False) -> dict[str, Any]:
     item = _object(value, "workspace")
     _string(item.get("workspace_id"), "workspace_id")
-    if display:
+    if require_label:
         _string(item.get("label"), "workspace label")
     return item
 
@@ -68,9 +68,6 @@ def _records(value: Any, name: str) -> list[dict[str, Any]]:
 
 def _validate_snapshot(value: Any) -> None:
     snap = _object(value, "snapshot")
-    _string(snap.get("version"), "snapshot version")
-    if type(snap.get("protocol")) is not int or snap["protocol"] < 0:
-        raise HerdrError("snapshot protocol must be a nonnegative integer")
     for tab in _records(snap.get("tabs"), "snapshot tabs"):
         _string(tab.get("tab_id"), "snapshot tab_id")
         _string(tab.get("workspace_id"), "snapshot tab workspace_id")
@@ -89,7 +86,7 @@ def _validate_result(result: Any, expected: str) -> dict[str, Any]:
         raise HerdrError(f"expected result type {expected!r}, got {item.get('type')!r}")
     if expected == "workspace_list":
         for workspace in _records(item.get("workspaces"), "workspaces"):
-            _workspace(workspace, display=True)
+            _workspace(workspace, require_label=True)
     elif expected in ("workspace_created", "workspace_info"):
         _workspace(item.get("workspace"))
         if expected == "workspace_created":

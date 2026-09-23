@@ -103,8 +103,6 @@ class ProtocolTests(unittest.TestCase):
                 "result": {
                     "type": "session_snapshot",
                     "snapshot": {
-                        "version": "0.9",
-                        "protocol": 1,
                         "tabs": [],
                         "panes": [],
                     },
@@ -177,17 +175,15 @@ class ProtocolTests(unittest.TestCase):
             "result": {
                 "type": "session_snapshot",
                 "snapshot": {
-                    "version": "0.9",
-                    "protocol": True,
                     "workspaces": [],
-                    "tabs": [],
+                    "tabs": {},
                     "panes": [],
                     "layouts": [],
                     "agents": [],
                 },
             },
         }
-        with self.assertRaisesRegex(HerdrError, "protocol"):
+        with self.assertRaisesRegex(HerdrError, "tabs must be an array"):
             self.parse(snap, "session_snapshot")
 
     def test_endpoint_default_session_override_and_client_conflict(self):
