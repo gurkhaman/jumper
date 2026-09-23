@@ -13,7 +13,12 @@ from .herdr import (
     HerdrError,
     resolve_endpoint,
 )
-from .projects import DiscoveryError, candidates, direct_target, discover
+from .projects import (
+    DiscoveryError,
+    direct_target,
+    discover,
+    matching_workspace_hints,
+)
 from .store import Associations, StoreDurabilityError, StoreError
 
 
@@ -60,7 +65,7 @@ def choose(
     return selected[0]
 
 
-def open_project(
+def resolve_project_workspace(
     project: str, client: HerdrClient, store: Associations, workspaces: list[dict]
 ) -> str | None:
     endpoint = client.endpoint.key
@@ -69,7 +74,11 @@ def open_project(
     if saved and saved in present:
         return saved
     if not saved:
-        hints = candidates(project, workspaces, client.snapshot()) if workspaces else []
+        hints = (
+            matching_workspace_hints(project, workspaces, client.snapshot())
+            if workspaces
+            else []
+        )
         if hints:
             options = [
                 (item["workspace_id"], f"Adopt {item['workspace_id']}  {item['label']}")
@@ -121,7 +130,7 @@ def launch(args: argparse.Namespace) -> int:
     if args.target is not None:
         # Validate before taking any workspace-creation decision.
         project = direct_target(args.target)
-        wid = open_project(project, client, store, workspaces)
+        wid = resolve_project_workspace(project, client, store, workspaces)
     else:
         options = [
             (
@@ -143,7 +152,7 @@ def launch(args: argparse.Namespace) -> int:
         if selected.startswith("w:"):
             wid = selected[2:]
         else:
-            wid = open_project(selected[2:], client, store, workspaces)
+            wid = resolve_project_workspace(selected[2:], client, store, workspaces)
     if wid is None:
         return 0
     try:

@@ -13,7 +13,12 @@ from jumper.herdr import (
     _parse_response,
     resolve_endpoint,
 )
-from jumper.projects import DiscoveryError, candidates, canonical, direct_target
+from jumper.projects import (
+    DiscoveryError,
+    canonical,
+    direct_target,
+    matching_workspace_hints,
+)
 from jumper.store import Associations, StoreDurabilityError, StoreError
 from tests.support import workspace
 
@@ -257,8 +262,14 @@ class ProjectTests(unittest.TestCase):
             },
         ]
         snapshot = {"tabs": tabs, "panes": panes}
-        self.assertEqual(candidates(str(self.project), [wid], snapshot), [])
+        self.assertEqual(
+            matching_workspace_hints(str(self.project), [wid], snapshot), []
+        )
         panes[1]["cwd"] = str(self.project)
-        self.assertEqual(candidates(str(self.project), [wid], snapshot), [wid])
+        self.assertEqual(
+            matching_workspace_hints(str(self.project), [wid], snapshot), [wid]
+        )
         panes[1]["cwd"] = str(self.root / "stale")
-        self.assertEqual(candidates(str(self.project), [wid], snapshot), [])
+        self.assertEqual(
+            matching_workspace_hints(str(self.project), [wid], snapshot), []
+        )

@@ -85,7 +85,9 @@ def direct_target(value: str) -> str:
     return project
 
 
-def candidates(project: str, workspaces: list[dict], snapshot: dict) -> list[dict]:
+def matching_workspace_hints(
+    project: str, workspaces: list[dict], snapshot: dict
+) -> list[dict]:
     """First-tab root-pane cwd is a hint, never an association."""
     tabs = snapshot["tabs"]
     panes = snapshot["panes"]
