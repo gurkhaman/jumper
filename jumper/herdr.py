@@ -52,19 +52,11 @@ def _string(value: Any, context: str) -> str:
     return value
 
 
-def _workspace(value: Any) -> dict[str, Any]:
+def _workspace(value: Any, *, display: bool = False) -> dict[str, Any]:
     item = _object(value, "workspace")
     _string(item.get("workspace_id"), "workspace_id")
-    _string(item.get("label"), "workspace label")
-    _string(item.get("active_tab_id"), "active_tab_id")
-    if type(item.get("focused")) is not bool:
-        raise HerdrError("workspace focused must be a boolean")
-    for field in ("number", "pane_count", "tab_count"):
-        if type(item.get(field)) is not int or item[field] < (
-            1 if field == "number" else 0
-        ):
-            raise HerdrError(f"workspace {field} must be a nonnegative integer")
-    _string(item.get("agent_status"), "workspace agent_status")
+    if display:
+        _string(item.get("label"), "workspace label")
     return item
 
 
@@ -79,8 +71,6 @@ def _validate_snapshot(value: Any) -> None:
     _string(snap.get("version"), "snapshot version")
     if type(snap.get("protocol")) is not int or snap["protocol"] < 0:
         raise HerdrError("snapshot protocol must be a nonnegative integer")
-    for workspace in _records(snap.get("workspaces"), "snapshot workspaces"):
-        _workspace(workspace)
     for tab in _records(snap.get("tabs"), "snapshot tabs"):
         _string(tab.get("tab_id"), "snapshot tab_id")
         _string(tab.get("workspace_id"), "snapshot tab workspace_id")
@@ -91,8 +81,6 @@ def _validate_snapshot(value: Any) -> None:
             _string(pane.get(field), "snapshot pane " + field)
         if pane.get("cwd") is not None:
             _string(pane["cwd"], "snapshot pane cwd")
-    _records(snap.get("layouts"), "snapshot layouts")
-    _records(snap.get("agents"), "snapshot agents")
 
 
 def _validate_result(result: Any, expected: str) -> dict[str, Any]:
@@ -101,7 +89,7 @@ def _validate_result(result: Any, expected: str) -> dict[str, Any]:
         raise HerdrError(f"expected result type {expected!r}, got {item.get('type')!r}")
     if expected == "workspace_list":
         for workspace in _records(item.get("workspaces"), "workspaces"):
-            _workspace(workspace)
+            _workspace(workspace, display=True)
     elif expected in ("workspace_created", "workspace_info"):
         _workspace(item.get("workspace"))
         if expected == "workspace_created":
@@ -208,35 +196,19 @@ class HerdrClient:
                 with conn.makefile("rb") as stream:
                     line = stream.readline(4 * 1024 * 1024 + 1)
                 if not line.endswith(b"\n") or len(line) > 4 * 1024 * 1024:
-                    if create:
-                        raise CreationOutcomeUnknownError(
-                            "workspace creation outcome unknown: bad response length"
-                        )
                     raise HerdrError("missing, truncated, or oversized Herdr response")
-        except (OSError, TimeoutError) as exc:
-            if create and sent:
-                raise CreationOutcomeUnknownError(
-                    "workspace creation outcome unknown after transport failure"
-                ) from exc
-            raise _APIUnavailableError(
-                f"Herdr API unavailable at {self.endpoint.socket_path}: {exc}",
-                connected=sent,
-            ) from exc
-        except KeyboardInterrupt as exc:
-            if create and sent:
-                raise CreationOutcomeUnknownError(
-                    "workspace creation outcome unknown after interruption"
-                ) from exc
-            raise
-        try:
             return _parse_response(line, request_id, expected)
         except _ServerError:
             raise
-        except HerdrError as exc:
-            # A server error is definitive; invalid create replies remain ambiguous.
-            if create:
+        except (OSError, HerdrError, KeyboardInterrupt) as exc:
+            if create and sent:
                 raise CreationOutcomeUnknownError(
-                    "workspace creation outcome unknown: " + str(exc)
+                    f"workspace creation outcome unknown: {exc}"
+                ) from exc
+            if isinstance(exc, OSError):
+                raise _APIUnavailableError(
+                    f"Herdr API unavailable at {self.endpoint.socket_path}: {exc}",
+                    connected=sent,
                 ) from exc
             raise
 

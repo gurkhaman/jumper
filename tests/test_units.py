@@ -60,6 +60,60 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(result["workspaces"][0]["extra"], "future field")
         self.assertEqual(result["extra"], 42)
 
+    def test_unused_metadata_does_not_make_usable_results_invalid(self):
+        listed = self.parse(
+            {
+                "id": "request-1",
+                "result": {
+                    "type": "workspace_list",
+                    "workspaces": [
+                        {"workspace_id": "w1", "label": "Project", "focused": "changed"}
+                    ],
+                },
+            }
+        )
+        self.assertEqual(listed["workspaces"][0]["workspace_id"], "w1")
+        created = self.parse(
+            {
+                "id": "request-1",
+                "result": {
+                    "type": "workspace_created",
+                    "workspace": {"workspace_id": "w2"},
+                    "tab": {"tab_id": "t1"},
+                    "root_pane": {"pane_id": "p1"},
+                },
+            },
+            "workspace_created",
+        )
+        self.assertEqual(created["workspace"]["workspace_id"], "w2")
+        focused = self.parse(
+            {
+                "id": "request-1",
+                "result": {
+                    "type": "workspace_info",
+                    "workspace": {"workspace_id": "w2"},
+                },
+            },
+            "workspace_info",
+        )
+        self.assertEqual(focused["workspace"]["workspace_id"], "w2")
+        snapshot = self.parse(
+            {
+                "id": "request-1",
+                "result": {
+                    "type": "session_snapshot",
+                    "snapshot": {
+                        "version": "0.9",
+                        "protocol": 1,
+                        "tabs": [],
+                        "panes": [],
+                    },
+                },
+            },
+            "session_snapshot",
+        )
+        self.assertEqual(snapshot["snapshot"]["tabs"], [])
+
     def test_bad_envelopes_and_records_are_rejected(self):
         cases = [
             (
@@ -81,20 +135,20 @@ class ProtocolTests(unittest.TestCase):
                     "id": "request-1",
                     "result": {
                         "type": "workspace_list",
-                        "workspaces": [workspace(focused=1)],
+                        "workspaces": [{"workspace_id": "w1"}],
                     },
                 },
-                "boolean",
+                "label",
             ),
             (
                 {
                     "id": "request-1",
                     "result": {
                         "type": "workspace_list",
-                        "workspaces": [workspace(number=True)],
+                        "workspaces": [{"label": "Project"}],
                     },
                 },
-                "number",
+                "workspace_id",
             ),
         ]
         for response, message in cases:
