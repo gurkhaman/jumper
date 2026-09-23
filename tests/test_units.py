@@ -12,6 +12,7 @@ from jumper.herdr import (
     _APIUnavailableError,
     _parse_response,
     resolve_endpoint,
+    workspace_label,
 )
 from jumper.projects import (
     DiscoveryError,
@@ -284,6 +285,13 @@ class ProjectTests(unittest.TestCase):
         self.assertIsNone(canonical(str(file)))
         with self.assertRaisesRegex(DiscoveryError, "does not exist"):
             direct_target(str(file))
+
+    def test_workspace_label_slug_and_fallback(self):
+        self.assertEqual(
+            workspace_label(Path("/Research Notes/Résumé App"), set()),
+            "research-notes-resume-app",
+        )
+        self.assertEqual(workspace_label(Path("/東京/文書"), set()), "project")
 
     def test_only_first_tab_root_pane_cwd_is_a_hint(self):
         wid = workspace("w1")

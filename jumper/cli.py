@@ -26,8 +26,26 @@ class JumperError(Exception):
     pass
 
 
+def project_option(path: str) -> str:
+    short = "/".join(Path(path).parts[-2:])
+    return f"   project  {short:<28}  {path}"
+
+
+def workspace_option(workspace: dict) -> str:
+    label = workspace["label"]
+    if label.startswith("/"):
+        short = "/".join(Path(label).parts[-2:])
+        label = f"{short}  {label}"
+    current = "  (current)" if workspace.get("focused") else ""
+    return f"●  live    {label}  [{workspace['workspace_id']}]{current}"
+
+
 def choose(
-    options: list[tuple[str, str]], *, prompt: str, required: bool = False
+    options: list[tuple[str, str]],
+    *,
+    prompt: str,
+    required: bool = False,
+    header: str = "enter: open  esc: cancel",
 ) -> str | None:
     if required:
         try:
@@ -43,7 +61,16 @@ def choose(
     ]
     try:
         result = subprocess.run(
-            ["fzf", "--prompt", prompt, "--delimiter", "\t", "--with-nth", "2"],
+            [
+                "fzf",
+                "--delimiter=\t",
+                "--with-nth=2",
+                "--no-multi",
+                "--layout=reverse",
+                "--border",
+                f"--prompt={prompt}",
+                f"--header={header}",
+            ],
             input="".join(f"{index}\t{label}\n" for index, label in enumerate(display)),
             text=True,
             capture_output=True,
@@ -89,7 +116,10 @@ def resolve_project_workspace(
             else:
                 options.append(("new", "Create new workspace"))
             selected = choose(
-                options, prompt="Confirm project association > ", required=True
+                options,
+                prompt="Confirm association> ",
+                required=True,
+                header="enter: confirm  esc: cancel",
             )
             if selected is None:
                 return None
@@ -97,7 +127,9 @@ def resolve_project_workspace(
                 store.save(endpoint, project, selected)
                 return selected
     try:
-        created = client.create_workspace(project)
+        created = client.create_workspace(
+            project, existing_labels={item["label"] for item in workspaces}
+        )
     except CreationOutcomeUnknownError as exc:
         try:
             available = client.list_workspaces()
@@ -135,18 +167,20 @@ def launch(args: argparse.Namespace) -> int:
         options = [
             (
                 f"w:{workspace['workspace_id']}",
-                f"workspace  {workspace['label']}  [{workspace['workspace_id']}]",
+                workspace_option(workspace),
             )
-            for workspace in workspaces
+            for workspace in sorted(
+                workspaces, key=lambda item: not item.get("focused")
+            )
         ]
         if not args.workspaces:
             options += [
-                (f"p:{path}", f"project  {path}")
+                (f"p:{path}", project_option(path))
                 for path in discover(
                     all_directories=args.all, home=endpoint.env.get("HOME")
                 )
             ]
-        selected = choose(options, prompt="Jumper > ")
+        selected = choose(options, prompt="project> ")
         if selected is None:
             return 0
         if selected.startswith("w:"):

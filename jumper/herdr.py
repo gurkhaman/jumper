@@ -6,11 +6,14 @@ No Herdr session is stopped or deleted by this module.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,6 +53,26 @@ def _string(value: Any, context: str) -> str:
     if not isinstance(value, str) or not value:
         raise HerdrError(f"{context} must be a nonempty string")
     return value
+
+
+def workspace_label(path: Path, existing_labels: set[str]) -> str:
+    """Name a project from its final two directories, disambiguating live labels."""
+    parts = [
+        re.sub(
+            r"[^a-z0-9]+",
+            "-",
+            unicodedata.normalize("NFKD", part)
+            .encode("ascii", "ignore")
+            .decode()
+            .lower(),
+        ).strip("-")
+        for part in path.parts[-2:]
+    ]
+    readable = "-".join(parts).strip("-") or "project"
+    if readable in existing_labels:
+        digest = hashlib.sha256(os.fsencode(path)).hexdigest()[:8]
+        return f"{readable}--{digest}"
+    return readable
 
 
 def _workspace(value: Any, *, require_label: bool = False) -> dict[str, Any]:
@@ -212,7 +235,9 @@ class HerdrClient:
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self._request("workspace.list", {}, "workspace_list")["workspaces"]
 
-    def create_workspace(self, cwd: str | Path) -> dict[str, Any]:
+    def create_workspace(
+        self, cwd: str | Path, *, existing_labels: set[str] | None = None
+    ) -> dict[str, Any]:
         try:
             path = Path(cwd).expanduser().resolve(strict=True)
         except OSError as exc:
@@ -221,7 +246,11 @@ class HerdrClient:
             raise HerdrError(f"workspace cwd is not a directory: {path}")
         return self._request(
             "workspace.create",
-            {"cwd": str(path), "label": str(path), "focus": False},
+            {
+                "cwd": str(path),
+                "label": workspace_label(path, existing_labels or set()),
+                "focus": False,
+            },
             "workspace_created",
             create=True,
         )["workspace"]

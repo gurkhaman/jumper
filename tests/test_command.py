@@ -1,5 +1,6 @@
 """Exercise the command through real subprocess, socket, and executable boundaries."""
 
+import hashlib
 import os
 import signal
 import subprocess
@@ -65,7 +66,7 @@ class CommandTests(CommandCase):
             self.association()[str(self.socket_path)][moved], "w-created-2"
         )
         self.events_path.unlink()
-        selected = self.run_jumper("--workspaces", TEST_FZF_INDEX=0)
+        selected = self.run_jumper("--workspaces", TEST_FZF_INDEX=1)
         self.assertEqual(selected.returncode, 0, selected.stderr)
         self.assertEqual(server.focused, "w-created")
         self.assertEqual(
@@ -140,6 +141,14 @@ class CommandTests(CommandCase):
         )
         self.assertTrue(self.marker.exists())
         self.assertEqual(self.association(), {})
+
+    def test_project_picker_leads_with_relevant_directories(self):
+        project = self.project()
+        self.start()
+        result = self.run_jumper(TEST_FZF_EXIT=130, TEST_ZOXIDE_OUTPUT=project + "\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        picker = next(event for event in self.events() if event.get("exec") == "fzf")
+        self.assertIn(f"project  {'home/project':<28}  {project}", picker["input"])
 
     def test_default_endpoint_and_two_sockets_in_one_named_session_are_isolated(self):
         project = self.project()
@@ -223,7 +232,8 @@ class CommandTests(CommandCase):
             e for e in self.events() if e.get("method") == "workspace.create"
         )
         self.assertEqual(
-            created["params"], {"cwd": project, "label": project, "focus": False}
+            created["params"],
+            {"cwd": project, "label": "home-project", "focus": False},
         )
         self.assertEqual(
             self.association(), {str(self.socket_path): {project: "w-created"}}
@@ -241,6 +251,39 @@ class CommandTests(CommandCase):
                 for e in herdr
             )
         )
+
+    def test_colliding_project_labels_keep_projects_distinct(self):
+        first = self.home / "one" / "work" / "api"
+        second = self.home / "two" / "work" / "api"
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        server = self.start()
+
+        for project in (first, second):
+            result = self.run_jumper(str(project))
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        digest = hashlib.sha256(os.fsencode(second)).hexdigest()[:8]
+        self.assertEqual(
+            [item["label"] for item in server.items],
+            ["work-api", f"work-api--{digest}"],
+        )
+        self.assertEqual(
+            self.association()[str(self.socket_path)],
+            {str(first): "w-created", str(second): "w-created-2"},
+        )
+
+    def test_project_label_is_visible_at_start_of_workspace_picker(self):
+        project = self.project()
+        self.start()
+        self.assertEqual(self.run_jumper(project).returncode, 0)
+        self.events_path.unlink()
+
+        result = self.run_jumper("--workspaces", TEST_FZF_EXIT=130)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        picker = next(event for event in self.events() if event.get("exec") == "fzf")
+        self.assertIn("●  live    home-project", picker["input"])
+        self.assertNotIn(project, picker["input"])
 
     def test_warm_server_reuses_association_without_snapshot_or_create(self):
         project = self.project()
@@ -320,12 +363,13 @@ class CommandTests(CommandCase):
         self.assertEqual(
             self.events()[3]["args"],
             [
-                "--prompt",
-                "Confirm project association > ",
-                "--delimiter",
-                "\t",
-                "--with-nth",
-                "2",
+                "--delimiter=\t",
+                "--with-nth=2",
+                "--no-multi",
+                "--layout=reverse",
+                "--border",
+                "--prompt=Confirm association> ",
+                "--header=enter: confirm  esc: cancel",
             ],
         )
         self.assertEqual(self.association()[str(self.socket_path)][project], "w1")
@@ -547,7 +591,18 @@ class CommandTests(CommandCase):
             ["workspace.list", "workspace.list", "fzf", "workspace.focus", "herdr"],
         )
         self.assertIn("w2", self.events()[2]["input"])
-        self.assertEqual(self.events()[2]["args"][0:2], ["--prompt", "Jumper > "])
+        self.assertEqual(
+            self.events()[2]["args"],
+            [
+                "--delimiter=\t",
+                "--with-nth=2",
+                "--no-multi",
+                "--layout=reverse",
+                "--border",
+                "--prompt=project> ",
+                "--header=enter: open  esc: cancel",
+            ],
+        )
         self.assertEqual(self.events()[3]["params"], {"workspace_id": "w2"})
         self.assertEqual(self.association(), {})
 
@@ -557,8 +612,43 @@ class CommandTests(CommandCase):
         result = self.run_jumper("--workspaces")
         self.assertEqual(result.returncode, 0, result.stderr)
         picker = next(event for event in self.events() if event.get("exec") == "fzf")
-        self.assertEqual(picker["input"], "0\tworkspace  One Two Three Four  [odd]\n")
+        self.assertEqual(picker["input"], "0\t●  live    One Two Three Four  [odd]\n")
         self.assertEqual(server.focused, "odd")
+
+    def test_focused_workspace_is_first_without_reordering_other_workspaces(self):
+        server = self.start()
+        server.items.extend(
+            [
+                workspace("w1", "First"),
+                workspace("w2", "Current", focused=True),
+                workspace("w3", "Third"),
+            ]
+        )
+        result = self.run_jumper("--workspaces", TEST_FZF_INDEX=0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        picker = next(event for event in self.events() if event.get("exec") == "fzf")
+        lines = picker["input"].splitlines()
+        self.assertIn("Current  [w2]  (current)", lines[0])
+        self.assertIn("First  [w1]", lines[1])
+        self.assertIn("Third  [w3]", lines[2])
+        self.assertEqual(server.focused, "w2")
+
+    def test_default_picker_orders_focused_workspace_then_others_then_projects(self):
+        project = self.project()
+        server = self.start()
+        server.items.extend(
+            [
+                workspace("old", project),
+                workspace("current", "Current", focused=True),
+            ]
+        )
+        result = self.run_jumper(TEST_FZF_EXIT=130, TEST_ZOXIDE_OUTPUT=project + "\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        picker = next(event for event in self.events() if event.get("exec") == "fzf")
+        lines = picker["input"].splitlines()
+        self.assertIn("Current  [current]  (current)", lines[0])
+        self.assertIn(f"home/project  {project}  [old]", lines[1])
+        self.assertIn(f"project  {'home/project':<28}  {project}", lines[2])
 
     def test_picker_cancel_and_invalid_selection(self):
         server = self.start()
